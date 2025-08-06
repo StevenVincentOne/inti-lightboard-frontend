@@ -1,0 +1,176 @@
+@import "tailwindcss";
+
+:root {
+  --green: #39F2AE;
+  --offwhite: #EFEFEF;
+  --lightgray: #9d9d9d;
+  /* #B5BCC5; */
+  --gray: #343434;
+  /* #8D949E; */
+  --darkgray: #191919;
+  /* #1e293b; */
+  /* Updated to golden gradient background for Inti LightBoard */
+  --background: linear-gradient(135deg, #FFD700 0%, #FFA500 25%, #FF8C00 50%, #DAA520 75%, #B8860B 100%);
+
+  --orange: #f5ab4a;
+  --pink: #f051db;
+  --purple: #a57de8;
+  /* for errors */
+  --red: #f55142;
+
+  --speaker-0: var(--green);
+  --speaker-1: var(--orange);
+  --speaker-2: var(--pink);
+  --speaker-3: var(--purple);
+
+  font-family:
+    var(--font-satoshi),
+    system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 500;
+  font-size: 1.35rem;
+
+  color-scheme: light;
+  color: #2c2c2c; /* Dark text on golden background */
+  background: var(--background);
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Hide scrollbars but keep scroll functionality */
+html {
+  /* Hide scrollbar for IE, Edge and Firefox */
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  /* Allow scrolling */
+  overflow: auto;
+  height: 100%;
+  /* Apply golden gradient to html as well */
+  background: var(--background);
+}
+
+html::-webkit-scrollbar {
+  /* Hide scrollbar for Chrome, Safari and Opera */
+  display: none;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  /* Allow scrolling but hide scrollbars */
+  overflow: auto;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  /* Ensure proper touch scrolling on mobile */
+  -webkit-overflow-scrolling: touch;
+  /* Allow content to be taller than viewport */
+  min-height: 100vh;
+  /* Apply golden gradient to body */
+  background: var(--background);
+}
+
+body::-webkit-scrollbar {
+  display: none;
+}
+
+/* Ensure main app container allows scrolling */
+#__next {
+  min-height: 100vh;
+  overflow: visible;
+  /* Apply golden gradient to next root */
+  background: var(--background);
+}
+
+/* Custom scrollbar hiding for any scrollable content areas */
+.scrollable-content {
+  /* Hide scrollbar for Chrome, Safari and Opera */
+  -webkit-overflow-scrolling: touch;
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+  overflow: auto; /* Allow scrolling */
+}
+
+.scrollable-content::-webkit-scrollbar {
+  display: none;
+}
+
+/* Allow smooth scrolling with touch and keyboard */
+.smooth-scroll {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+
+/* Fullscreen mode specific styles */
+:-webkit-full-screen {
+  width: 100vw;
+  height: 100vh;
+  overflow: auto;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  background: var(--background);
+}
+
+:-webkit-full-screen::-webkit-scrollbar {
+  display: none;
+}
+
+:-moz-full-screen {
+  width: 100vw;
+  height: 100vh;
+  overflow: auto;
+  scrollbar-width: none;
+  background: var(--background);
+}
+
+:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  overflow: auto;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  background: var(--background);
+}
+
+:fullscreen::-webkit-scrollbar {
+  display: none;
+}
+
+/* TODO(vv): better place for the highlighted-word stuff? */
+.highlighted-word {
+  color: black;
+}
+
+/* Create a pseudo-element for the background */
+.highlighted-word::after {
+  content: "";
+  position: absolute;
+  background-color: var(--speaker-color, white);
+  left: -0.25rem;
+  right: -0.25rem;
+  top: -0.25rem;
+  bottom: -0.25rem;
+  border-radius: 0.25rem;
+  z-index: -1;
+}
+
+@theme {
+  /* TODO: deduplicate */
+  --color-green: var(--green);
+  --color-offwhite: var(--offwhite);
+  --color-lightgray: var(--lightgray);
+  --color-gray: var(--gray);
+  --color-darkgray: var(--darkgray);
+  --color-orange: var(--orange);
+  --color-pink: var(--pink);
+  --color-purple: var(--purple);
+  --color-red: var(--red);
+  --color-background: var(--background);
+  /* sometimes it's useful to have these as variables too */
+  --color-white: #ffffff;
+  --color-black: #000000;
+
+  --font-family-satoshi: var(--font-satoshi);
+}
