@@ -1,0 +1,65 @@
+import { create } from "zustand";
+
+type OverlayMode = "hidden" | "welcome" | "full";
+
+interface BeforeInstallPromptEvent extends Event {
+  readonly platforms: string[];
+  readonly userChoice: Promise<{
+    outcome: "accepted" | "dismissed";
+    platform: string;
+  }>;
+  prompt(): Promise<void>;
+}
+
+interface IntiOverlayState {
+  overlayMode: OverlayMode;
+  hasUserInteracted: boolean;
+  isFullscreen: boolean;
+  canInstall: boolean;
+  deferredPrompt: BeforeInstallPromptEvent | null;
+  setOverlayMode: (mode: OverlayMode) => void;
+  setHasUserInteracted: (interacted: boolean) => void;
+  setIsFullscreen: (fullscreen: boolean) => void;
+  setCanInstall: (canInstall: boolean) => void;
+  setDeferredPrompt: (prompt: BeforeInstallPromptEvent | null) => void;
+  reset: () => void;
+}
+
+export const useIntiOverlayStore = create<IntiOverlayState>((set) => ({
+  overlayMode: "welcome", // Start with welcome for PWA
+  hasUserInteracted: false,
+  isFullscreen: false,
+  canInstall: false,
+  deferredPrompt: null,
+  
+  setOverlayMode: (mode) => {
+    console.log("[IntiOverlayStore] Setting overlay mode to:", mode);
+    set({ overlayMode: mode });
+  },
+  
+  setHasUserInteracted: (interacted) => {
+    set({ hasUserInteracted: interacted });
+  },
+  
+  setIsFullscreen: (fullscreen) => {
+    set({ isFullscreen: fullscreen });
+  },
+  
+  setCanInstall: (canInstall) => {
+    set({ canInstall: canInstall });
+  },
+  
+  setDeferredPrompt: (prompt) => {
+    set({ deferredPrompt: prompt });
+  },
+  
+  reset: () => {
+    set({ 
+      overlayMode: "welcome", 
+      hasUserInteracted: false,
+      isFullscreen: false,
+      canInstall: false,
+      deferredPrompt: null
+    });
+  },
+}));
