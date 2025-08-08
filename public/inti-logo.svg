@@ -1,0 +1,51 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="sunGrad" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" style="stop-color:#FFD700;stop-opacity:1" />
+      <stop offset="70%" style="stop-color:#FFA500;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#FF8C00;stop-opacity:1" />
+    </radialGradient>
+    <radialGradient id="faceGrad" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" style="stop-color:#FFE55C;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#DAA520;stop-opacity:1" />
+    </radialGradient>
+  </defs>
+  
+  <\!-- Sun rays -->
+  <g transform="translate(256,256)">
+    <\!-- 16 triangular rays around the sun -->
+    <polygon points="0,-180 -15,-130 15,-130" fill="url(#sunGrad)" transform="rotate(0)"/>
+    <polygon points="0,-180 -15,-130 15,-130" fill="url(#sunGrad)" transform="rotate(22.5)"/>
+    <polygon points="0,-180 -15,-130 15,-130" fill="url(#sunGrad)" transform="rotate(45)"/>
+    <polygon points="0,-180 -15,-130 15,-130" fill="url(#sunGrad)" transform="rotate(67.5)"/>
+    <polygon points="0,-180 -15,-130 15,-130" fill="url(#sunGrad)" transform="rotate(90)"/>
+    <polygon points="0,-180 -15,-130 15,-130" fill="url(#sunGrad)" transform="rotate(112.5)"/>
+    <polygon points="0,-180 -15,-130 15,-130" fill="url(#sunGrad)" transform="rotate(135)"/>
+    <polygon points="0,-180 -15,-130 15,-130" fill="url(#sunGrad)" transform="rotate(157.5)"/>
+    <polygon points="0,-180 -15,-130 15,-130" fill="url(#sunGrad)" transform="rotate(180)"/>
+    <polygon points="0,-180 -15,-130 15,-130" fill="url(#sunGrad)" transform="rotate(202.5)"/>
+    <polygon points="0,-180 -15,-130 15,-130" fill="url(#sunGrad)" transform="rotate(225)"/>
+    <polygon points="0,-180 -15,-130 15,-130" fill="url(#sunGrad)" transform="rotate(247.5)"/>
+    <polygon points="0,-180 -15,-130 15,-130" fill="url(#sunGrad)" transform="rotate(270)"/>
+    <polygon points="0,-180 -15,-130 15,-130" fill="url(#sunGrad)" transform="rotate(292.5)"/>
+    <polygon points="0,-180 -15,-130 15,-130" fill="url(#sunGrad)" transform="rotate(315)"/>
+    <polygon points="0,-180 -15,-130 15,-130" fill="url(#sunGrad)" transform="rotate(337.5)"/>
+  </g>
+  
+  <\!-- Main sun circle -->
+  <circle cx="256" cy="256" r="130" fill="url(#faceGrad)" stroke="#DAA520" stroke-width="3"/>
+  
+  <\!-- Sun face -->
+  <\!-- Eyes -->
+  <ellipse cx="220" cy="220" rx="15" ry="20" fill="#B8860B"/>
+  <ellipse cx="292" cy="220" rx="15" ry="20" fill="#B8860B"/>
+  
+  <\!-- Nose -->
+  <ellipse cx="256" cy="250" rx="8" ry="12" fill="#DAA520"/>
+  
+  <\!-- Mouth -->
+  <path d="M 220 280 Q 256 310 292 280" stroke="#B8860B" stroke-width="6" fill="none" stroke-linecap="round"/>
+  
+  <\!-- Inner glow effect -->
+  <circle cx="256" cy="256" r="120" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="2"/>
+</svg>
