@@ -323,7 +323,7 @@ const Unmute = () => {
             analyserNode={audioProcessor.current?.inputAnalyser || null}
             isConnected={shouldConnect}
             isVisible={showUserViz}
-            profileImageUrl={user?.profileImage || null} // Pass user profile image from Replit
+            profileImageUrl={user?.profileImage || null} // Pass user profile image
           />
         </div>
         {showSubtitles && <Subtitles chatHistory={chatHistory} />}

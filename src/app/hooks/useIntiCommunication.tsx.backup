@@ -15,19 +15,12 @@ interface AuthState {
   user: User | null;
 }
 
-interface TopicMessage {
-  type: string;
-  data: unknown;
-  timestamp: number;
-}
-
 const WEBSOCKET_URL_BASE = "wss://6d3f40b3-1e49-4b09-85e4-36ff422ee88b-00-psvr1owg24vj.janeway.replit.dev/api/inti-ws";
 
 // This hook now manages both communication AND authentication state
 export const useIntiCommunication = () => {
   const ws = useRef<WebSocket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
-  const [lastMessage, setLastMessage] = useState<TopicMessage | null>(null);
   
   // Create a comprehensive auth state managed by this hook
   const [authState, setAuthState] = useState<AuthState>({
@@ -46,31 +39,15 @@ export const useIntiCommunication = () => {
       return urlSessionId;
     }
     
-    // 2. Check stored auth data and extract session ID (FIXED)
+    // 2. Check stored auth data (MATCHING MAIN PWA STORAGE)
     const storedAuth = localStorage.getItem('inti_auth') || sessionStorage.getItem('inti_auth');
     if (storedAuth) {
       try {
         const parsed = JSON.parse(storedAuth);
         if (parsed.authenticated && parsed.user) {
-          console.log('[IntiComm] Found stored auth data for user:', parsed.user.displayName || parsed.user.username);
-          
-          // FIXED: Extract actual session ID from stored auth
-          if (parsed.sessionId) {
-            console.log('[IntiComm] Using stored session ID for WebSocket authentication');
-            return parsed.sessionId;
-          }
-          
-          // If no sessionId, use user ID as session
-          if (parsed.user && parsed.user.id) {
-            console.log('[IntiComm] No session ID in stored auth, using user ID as session');
-            return `user_${parsed.user.id}`;
-          }
-          
-          // Last resort: use username as session identifier
-          if (parsed.user && parsed.user.username) {
-            console.log('[IntiComm] Using username as session identifier');
-            return `username_${parsed.user.username}`;
-          }
+          console.log('[IntiComm] Found stored auth data, using authenticated session');
+          // Return a flag indicating we have stored auth (not a session ID)
+          return 'STORED_AUTH';
         }
       } catch {
         console.log('[IntiComm] Invalid stored auth data, clearing...');
@@ -136,9 +113,12 @@ export const useIntiCommunication = () => {
     const sessionInfo = getSessionId();
     let websocketUrl = WEBSOCKET_URL_BASE;
 
-    if (sessionInfo) {
+    if (sessionInfo && sessionInfo !== 'STORED_AUTH') {
       console.log(`[IntiComm] Authenticating WebSocket with sessionId: ${sessionInfo.substring(0, 8)}...`);
       websocketUrl = `${WEBSOCKET_URL_BASE}?clientType=PWA&sessionId=${sessionInfo}`;
+    } else if (sessionInfo === 'STORED_AUTH') {
+      console.log('[IntiComm] Using stored auth, connecting WebSocket without session parameter');
+      websocketUrl = `${WEBSOCKET_URL_BASE}?clientType=PWA`;
     } else {
       console.log('[IntiComm] No session ID found. Connecting WebSocket without authentication.');
       websocketUrl = `${WEBSOCKET_URL_BASE}?clientType=PWA`;
@@ -156,41 +136,21 @@ export const useIntiCommunication = () => {
       const message = JSON.parse(event.data);
       console.log('[IntiComm] Received message:', message);
 
-      // Set last message for components to consume
-      setLastMessage({
-        type: message.type,
-        data: message.data || message,
-        timestamp: Date.now()
-      });
-
       if (message.type === 'connection.established') {
         console.log('[IntiComm] Authentication status received from server:', message.data);
         
-        // FIXED: Better auth state management
-        if (message.data.authenticated && message.data.user) {
-          setAuthState({
-            loading: false,
-            authenticated: true,
-            user: message.data.user,
-          });
-          
-          // Store auth with session info
-          const authData = { user: message.data.user, authenticated: true, sessionId: getSessionId() };
+        // Update auth state based on server response
+        setAuthState({
+          loading: false,
+          authenticated: message.data.authenticated || false,
+          user: message.data.user || null,
+        });
+        
+        // Store auth data if authenticated and not already stored
+        if (message.data.authenticated && message.data.user && !localStorage.getItem('inti_auth')) {
+          const authData = { user: message.data.user, authenticated: true };
           localStorage.setItem('inti_auth', JSON.stringify(authData));
           sessionStorage.setItem('inti_auth', JSON.stringify(authData));
-        } else {
-          // Only clear auth if we don't have valid stored auth
-          const hasStoredAuth = localStorage.getItem('inti_auth') || sessionStorage.getItem('inti_auth');
-          if (!hasStoredAuth) {
-            setAuthState({
-              loading: false,
-              authenticated: false,
-              user: null,
-            });
-          } else {
-            console.warn('[IntiComm] Server says not authenticated but we have stored auth. Keeping stored auth.');
-            setAuthState(prev => ({ ...prev, loading: false }));
-          }
         }
       }
     };
@@ -210,9 +170,10 @@ export const useIntiCommunication = () => {
 
   useEffect(() => {
     // First check for stored auth
-    checkStoredAuth();
-    // Always connect for real-time updates
-    connect();
+    if (!checkStoredAuth()) {
+      // If no stored auth, connect to WebSocket
+      connect();
+    }
     
     return () => {
       ws.current?.close();
@@ -222,7 +183,6 @@ export const useIntiCommunication = () => {
   return {
     isConnected,
     authState,
-    lastMessage,
     sendMessage,
   };
 };
