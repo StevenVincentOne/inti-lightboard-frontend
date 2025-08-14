@@ -20,7 +20,7 @@ interface IntiTextChatProps {
   topicUuid?: string;
 }
 
-export const IntiTextChat: React.FC<IntiTextChatProps> = ({
+export const IntiTextChatWorking: React.FC<IntiTextChatProps> = ({
   isVisible,
   onClose,
   topicUuid
@@ -627,3 +627,4 @@ export const IntiTextChat: React.FC<IntiTextChatProps> = ({
   );
 };
 
+export default IntiTextChatWorking;

@@ -1,0 +1,27 @@
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci --only=production
+
+# Copy built application
+COPY .next ./.next
+COPY public ./public
+COPY src ./src
+COPY next.config.js ./
+COPY tsconfig.json ./
+
+# Install all dependencies for runtime
+RUN npm install
+
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_ENV=production
+ENV PORT=3000
+
+EXPOSE 3000
+
+CMD ["npm", "start"]

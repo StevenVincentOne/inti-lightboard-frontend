@@ -1,0 +1,22 @@
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install production dependencies
+RUN npm ci --production
+
+# Copy built Next.js app
+COPY .next ./.next
+COPY public ./public
+
+# Set environment variables
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV NEXT_PUBLIC_IN_DOCKER=true
+
+EXPOSE 3000
+
+CMD ["npm", "start"]

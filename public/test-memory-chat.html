@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Memory Chat System Test</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f9fafb;
+        }
+        .test-section {
+            background: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin: 10px 0;
+        }
+        button {
+            padding: 8px 16px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            background: white;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #f3f4f6;
+        }
+        .success { color: #059669; }
+        .error { color: #dc2626; }
+        .info { color: #0369a1; }
+        pre {
+            background: #f3f4f6;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 14px;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            margin: 15px 0;
+        }
+        .stat-card {
+            background: #f8fafc;
+            padding: 15px;
+            border-radius: 6px;
+            text-align: center;
+        }
+        .stat-number {
+            font-size: 24px;
+            font-weight: 700;
+            color: #1f2937;
+        }
+        .stat-label {
+            font-size: 12px;
+            color: #6b7280;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Memory Chat System Test</h1>
+    <p>This page tests the local file-based chat storage system with 500-token auto-export functionality.</p>
+
+    <div class="test-section">
+        <h2>1. Basic Storage Test</h2>
+        <div class="controls">
+            <button onclick="testBasicStorage()">Test Basic Storage</button>
+            <button onclick="clearAllStorage()">Clear All Storage</button>
+        </div>
+        <div id="storage-results"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>2. Message Addition Test</h2>
+        <div class="controls">
+            <input type="text" id="topic-uuid" placeholder="Topic UUID" value="test-topic-123">
+            <input type="text" id="message-content" placeholder="Message content" value="Hello, this is a test message">
+            <button onclick="addTestMessage()">Add Message</button>
+        </div>
+        <div id="message-results"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>3. Auto-Export Test (500 tokens)</h2>
+        <div class="controls">
+            <button onclick="triggerAutoExport()">Add 500+ Token Messages</button>
+            <button onclick="manualSaveToMemory()">Manual Save to Memory</button>
+        </div>
+        <div id="export-results"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>4. Storage Statistics</h2>
+        <div class="controls">
+            <button onclick="loadStorageStats()">Refresh Stats</button>
+        </div>
+        <div class="stats" id="storage-stats">
+            <div class="stat-card">
+                <div class="stat-number" id="total-topics">0</div>
+                <div class="stat-label">Topics</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="total-messages">0</div>
+                <div class="stat-label">Messages</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="total-tokens">0</div>
+                <div class="stat-label">Tokens</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="pending-exports">0</div>
+                <div class="stat-label">Pending Exports</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>5. Topic History Test</h2>
+        <div class="controls">
+            <button onclick="loadTopicHistory()">Load Topic History</button>
+            <button onclick="listAllTopics()">List All Topics</button>
+        </div>
+        <div id="history-results"></div>
+    </div>
+
+    <script type="module">
+        // Import the chat file manager classes
+        // Note: In a real implementation, these would be imported from the compiled modules
+
+        // Simulate the BrowserChatFileManager class for testing
+        class TestChatFileManager {
+            constructor(userId, tokenThreshold = 500) {
+                this.userId = userId;
+                this.chatStorageKey = `chat-storage-user-${userId}`;
+                this.tokenThreshold = tokenThreshold;
+            }
+
+            getTopicStorageKey(topicUuid) {
+                return `${this.chatStorageKey}-topic-${topicUuid}`;
+            }
+
+            async loadTopicChat(topicUuid) {
+                try {
+                    const storageKey = this.getTopicStorageKey(topicUuid);
+                    const fileContent = localStorage.getItem(storageKey);
+                    
+                    if (!fileContent) {
+                        console.log(`No existing chat file for topic ${topicUuid}`);
+                        return null;
+                    }
+
+                    const chatFile = JSON.parse(fileContent);
+                    console.log(`Loaded topic ${topicUuid}: ${chatFile.messages.length} messages, ${chatFile.totalTokens} tokens`);
+                    return chatFile;
+                } catch (error) {
+                    console.error(`Failed to load topic chat ${topicUuid}:`, error);
+                    return null;
+                }
+            }
+
+            async createTopicChat(topicUuid, title) {
+                const chatFile = {
+                    topicUuid,
+                    title,
+                    messages: [],
+                    totalTokens: 0,
+                    lastExportedIndex: 0,
+                    lastExportedTokens: 0,
+                    createdAt: Date.now(),
+                    updatedAt: Date.now(),
+                    exported: false
+                };
+
+                await this.saveTopicChat(chatFile);
+                console.log(`Created new chat file for topic ${topicUuid}`);
+                return chatFile;
+            }
+
+            async saveTopicChat(chatFile) {
+                try {
+                    chatFile.updatedAt = Date.now();
+                    const storageKey = this.getTopicStorageKey(chatFile.topicUuid);
+                    localStorage.setItem(storageKey, JSON.stringify(chatFile));
+                } catch (error) {
+                    console.error(`Failed to save topic chat ${chatFile.topicUuid}:`, error);
+                    throw error;
+                }
+            }
+
+            async addMessage(topicUuid, role, content, metadata) {
+                let chatFile = await this.loadTopicChat(topicUuid);
+                if (!chatFile) {
+                    chatFile = await this.createTopicChat(topicUuid);
+                }
+
+                const tokens = this.estimateTokens(content);
+                const message = {
+                    id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                    role,
+                    content,
+                    timestamp: Date.now(),
+                    tokens,
+                    metadata
+                };
+
+                chatFile.messages.push(message);
+                chatFile.totalTokens += tokens;
+
+                await this.saveTopicChat(chatFile);
+
+                const tokensSinceLastExport = chatFile.totalTokens - chatFile.lastExportedTokens;
+                const shouldExport = tokensSinceLastExport >= this.tokenThreshold;
+
+                let exportBatch;
+                if (shouldExport) {
+                    exportBatch = this.createExportBatch(chatFile);
+                }
+
+                console.log(`Added message to ${topicUuid}: ${content.substring(0, 50)}... (${tokens} tokens)`);
+                if (shouldExport) {
+                    console.log(`🔄 Export triggered: ${tokensSinceLastExport} tokens since last export`);
+                }
+
+                return { chatFile, shouldExport, exportBatch };
+            }
+
+            createExportBatch(chatFile) {
+                const startIndex = chatFile.lastExportedIndex;
+                const endIndex = chatFile.messages.length;
+                const messagesToExport = chatFile.messages.slice(startIndex);
+                const tokenCount = messagesToExport.reduce((sum, msg) => sum + msg.tokens, 0);
+
+                return {
+                    topicUuid: chatFile.topicUuid,
+                    messages: messagesToExport,
+                    startIndex,
+                    endIndex,
+                    tokenCount,
+                    timestamp: Date.now()
+                };
+            }
+
+            async listTopics() {
+                try {
+                    const topics = [];
+                    const prefix = `${this.chatStorageKey}-topic-`;
+                    
+                    for (let i = 0; i < localStorage.length; i++) {
+                        const key = localStorage.key(i);
+                        if (key && key.startsWith(prefix)) {
+                            const topicUuid = key.replace(prefix, '');
+                            const chatFile = await this.loadTopicChat(topicUuid);
+                            
+                            if (chatFile) {
+                                topics.push({
+                                    topicUuid,
+                                    title: chatFile.title,
+                                    messageCount: chatFile.messages.length,
+                                    totalTokens: chatFile.totalTokens,
+                                    lastUpdated: chatFile.updatedAt
+                                });
+                            }
+                        }
+                    }
+
+                    return topics.sort((a, b) => b.lastUpdated - a.lastUpdated);
+                } catch (error) {
+                    console.error('Failed to list topics:', error);
+                    return [];
+                }
+            }
+
+            async getStorageStats() {
+                const topics = await this.listTopics();
+                const totalMessages = topics.reduce((sum, topic) => sum + topic.messageCount, 0);
+                const totalTokens = topics.reduce((sum, topic) => sum + topic.totalTokens, 0);
+
+                let storageSize = 0;
+                const prefix = `${this.chatStorageKey}-topic-`;
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    if (key && key.startsWith(prefix)) {
+                        const value = localStorage.getItem(key);
+                        if (value) {
+                            storageSize += value.length;
+                        }
+                    }
+                }
+
+                return {
+                    totalTopics: topics.length,
+                    totalMessages,
+                    totalTokens,
+                    storageSize,
+                    pendingExports: 0 // Would calculate from export status
+                };
+            }
+
+            estimateTokens(text) {
+                if (!text) return 0;
+                return Math.ceil(text.length / 4);
+            }
+        }
+
+        // Global test instance
+        window.testManager = new TestChatFileManager(1, 500);
+
+        // Test functions
+        window.testBasicStorage = async function() {
+            const results = document.getElementById('storage-results');
+            results.innerHTML = '<p class="info">Running basic storage test...</p>';
+
+            try {
+                // Test creating a topic
+                const topicUuid = 'test-basic-' + Date.now();
+                const chatFile = await window.testManager.createTopicChat(topicUuid, 'Basic Test Topic');
+                
+                // Test loading the topic
+                const loadedFile = await window.testManager.loadTopicChat(topicUuid);
+                
+                if (loadedFile && loadedFile.topicUuid === topicUuid) {
+                    results.innerHTML = `
+                        <p class="success">✅ Basic storage test passed!</p>
+                        <pre>${JSON.stringify(loadedFile, null, 2)}</pre>
+                    `;
+                } else {
+                    results.innerHTML = '<p class="error">❌ Basic storage test failed - could not load created topic</p>';
+                }
+            } catch (error) {
+                results.innerHTML = `<p class="error">❌ Basic storage test failed: ${error.message}</p>`;
+            }
+        };
+
+        window.addTestMessage = async function() {
+            const topicUuid = document.getElementById('topic-uuid').value;
+            const content = document.getElementById('message-content').value;
+            const results = document.getElementById('message-results');
+
+            if (!topicUuid || !content) {
+                results.innerHTML = '<p class="error">Please enter both topic UUID and message content</p>';
+                return;
+            }
+
+            try {
+                const result = await window.testManager.addMessage(topicUuid, 'user', content);
+                
+                results.innerHTML = `
+                    <p class="success">✅ Message added successfully!</p>
+                    <p><strong>Total tokens:</strong> ${result.chatFile.totalTokens}</p>
+                    <p><strong>Message count:</strong> ${result.chatFile.messages.length}</p>
+                    <p><strong>Should export:</strong> ${result.shouldExport ? 'Yes' : 'No'}</p>
+                    ${result.exportBatch ? `<p><strong>Export batch tokens:</strong> ${result.exportBatch.tokenCount}</p>` : ''}
+                `;
+            } catch (error) {
+                results.innerHTML = `<p class="error">❌ Failed to add message: ${error.message}</p>`;
+            }
+        };
+
+        window.triggerAutoExport = async function() {
+            const results = document.getElementById('export-results');
+            results.innerHTML = '<p class="info">Adding messages to trigger auto-export...</p>';
+
+            try {
+                const topicUuid = 'auto-export-test-' + Date.now();
+                let totalTokens = 0;
+                let exportTriggered = false;
+
+                // Add messages until we hit the 500 token threshold
+                for (let i = 0; i < 20; i++) {
+                    const longMessage = `This is test message number ${i + 1}. `.repeat(20); // ~580 characters ≈ 145 tokens
+                    const result = await window.testManager.addMessage(topicUuid, 'user', longMessage);
+                    
+                    totalTokens = result.chatFile.totalTokens;
+                    
+                    if (result.shouldExport) {
+                        exportTriggered = true;
+                        results.innerHTML = `
+                            <p class="success">✅ Auto-export triggered!</p>
+                            <p><strong>Total tokens:</strong> ${totalTokens}</p>
+                            <p><strong>Export batch tokens:</strong> ${result.exportBatch.tokenCount}</p>
+                            <p><strong>Messages in batch:</strong> ${result.exportBatch.messages.length}</p>
+                        `;
+                        break;
+                    }
+                }
+
+                if (!exportTriggered) {
+                    results.innerHTML = `
+                        <p class="error">❌ Auto-export not triggered after ${totalTokens} tokens</p>
+                        <p>Threshold: 500 tokens</p>
+                    `;
+                }
+            } catch (error) {
+                results.innerHTML = `<p class="error">❌ Auto-export test failed: ${error.message}</p>`;
+            }
+        };
+
+        window.loadStorageStats = async function() {
+            try {
+                const stats = await window.testManager.getStorageStats();
+                
+                document.getElementById('total-topics').textContent = stats.totalTopics;
+                document.getElementById('total-messages').textContent = stats.totalMessages;
+                document.getElementById('total-tokens').textContent = stats.totalTokens.toLocaleString();
+                document.getElementById('pending-exports').textContent = stats.pendingExports;
+            } catch (error) {
+                console.error('Failed to load storage stats:', error);
+            }
+        };
+
+        window.loadTopicHistory = async function() {
+            const topicUuid = document.getElementById('topic-uuid').value;
+            const results = document.getElementById('history-results');
+
+            if (!topicUuid) {
+                results.innerHTML = '<p class="error">Please enter a topic UUID</p>';
+                return;
+            }
+
+            try {
+                const chatFile = await window.testManager.loadTopicChat(topicUuid);
+                
+                if (chatFile) {
+                    results.innerHTML = `
+                        <p class="success">✅ Topic history loaded</p>
+                        <p><strong>Messages:</strong> ${chatFile.messages.length}</p>
+                        <p><strong>Total tokens:</strong> ${chatFile.totalTokens}</p>
+                        <pre>${JSON.stringify(chatFile.messages.slice(-3), null, 2)}</pre>
+                    `;
+                } else {
+                    results.innerHTML = '<p class="info">No history found for this topic</p>';
+                }
+            } catch (error) {
+                results.innerHTML = `<p class="error">❌ Failed to load history: ${error.message}</p>`;
+            }
+        };
+
+        window.listAllTopics = async function() {
+            const results = document.getElementById('history-results');
+
+            try {
+                const topics = await window.testManager.listTopics();
+                
+                if (topics.length > 0) {
+                    const topicsList = topics.map(topic => 
+                        `<li><strong>${topic.topicUuid}</strong> - ${topic.messageCount} messages, ${topic.totalTokens} tokens</li>`
+                    ).join('');
+                    
+                    results.innerHTML = `
+                        <p class="success">✅ Found ${topics.length} topics</p>
+                        <ul>${topicsList}</ul>
+                    `;
+                } else {
+                    results.innerHTML = '<p class="info">No topics found</p>';
+                }
+            } catch (error) {
+                results.innerHTML = `<p class="error">❌ Failed to list topics: ${error.message}</p>`;
+            }
+        };
+
+        window.clearAllStorage = function() {
+            const keys = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key && key.includes('chat-storage-user-')) {
+                    keys.push(key);
+                }
+            }
+
+            keys.forEach(key => localStorage.removeItem(key));
+            
+            document.getElementById('storage-results').innerHTML = `<p class="success">✅ Cleared ${keys.length} storage items</p>`;
+            window.loadStorageStats(); // Refresh stats
+        };
+
+        window.manualSaveToMemory = function() {
+            document.getElementById('export-results').innerHTML = `
+                <p class="info">Manual "Save to Memory" functionality would trigger here</p>
+                <p>This would call the export service to send pending messages to PostgreSQL/Neo4j</p>
+            `;
+        };
+
+        // Load stats on page load
+        window.addEventListener('load', () => {
+            window.loadStorageStats();
+        });
+    </script>
+</body>
+</html>

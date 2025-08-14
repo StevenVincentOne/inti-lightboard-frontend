@@ -1,9 +1,9 @@
-// Working Text Chat Interface with Memory Storage and Direct LLM Integration
-// Combines local storage with direct LLM API calls
+// Enhanced Text Chat Interface with Memory Storage
+// Integrates local file-based chat storage with WebSocket bridge
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useIntiCommunication } from '../hooks/useIntiCommunication';
-import { useMemoryChat } from './simple-memory-chat';
+import { SimpleMemoryChat, useMemoryChat } from './simple-memory-chat';
 
 interface ChatMessage {
   id: number;
@@ -20,12 +20,16 @@ interface IntiTextChatProps {
   topicUuid?: string;
 }
 
-export const IntiTextChat: React.FC<IntiTextChatProps> = ({
+export const IntiTextChatWithMemory: React.FC<IntiTextChatProps> = ({
   isVisible,
   onClose,
   topicUuid
 }) => {
-  const { authState } = useIntiCommunication();
+  const { 
+    isConnected, 
+    sendMessage, 
+    authState 
+  } = useIntiCommunication();
   
   // Memory chat integration
   const memoryChat = useMemoryChat(topicUuid || 'default-topic', authState?.user?.id || 1);
@@ -33,8 +37,9 @@ export const IntiTextChat: React.FC<IntiTextChatProps> = ({
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
-  const [pendingTokens, setPendingTokens] = useState(0);
+  const [sessionStarted, setSessionStarted] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -60,7 +65,6 @@ export const IntiTextChat: React.FC<IntiTextChatProps> = ({
   useEffect(() => {
     if (topicUuid && memoryChat) {
       loadChatHistory();
-      loadPendingTokens();
     }
   }, [topicUuid]);
 
@@ -84,25 +88,114 @@ export const IntiTextChat: React.FC<IntiTextChatProps> = ({
     }
   };
 
-  // Load pending tokens count
-  const loadPendingTokens = async () => {
-    try {
-      const exportStatus = await memoryChat.getExportStatus();
-      const topicStatus = exportStatus.find(s => s.topicUuid === (topicUuid || 'default-topic'));
-      setPendingTokens(topicStatus?.pendingTokens || 0);
-    } catch (error) {
-      console.error('Failed to load pending tokens:', error);
+  // Start chat session when component becomes visible
+  useEffect(() => {
+    if (isVisible && isConnected && !sessionStarted) {
+      startChatSession();
+    }
+  }, [isVisible, isConnected, sessionStarted]);
+
+  // Handle incoming WebSocket messages
+  useEffect(() => {
+    const handleChatMessage = (event: CustomEvent) => {
+      const message = event.detail;
+      
+      switch (message.type) {
+        case 'chat.session_started':
+          handleSessionStarted(message.data);
+          break;
+          
+        case 'chat.message_received':
+          handleMessageReceived(message.data);
+          break;
+          
+        case 'chat.history_loaded':
+          handleHistoryLoaded(message.data);
+          break;
+          
+        case 'chat.session_ended':
+          handleSessionEnded(message.data);
+          break;
+          
+        case 'error':
+          if (message.data.message?.includes('chat')) {
+            setConnectionError(message.data.message);
+            setIsLoading(false);
+          }
+          break;
+      }
+    };
+
+    window.addEventListener('intiChatMessage', handleChatMessage as EventListener);
+    
+    return () => {
+      window.removeEventListener('intiChatMessage', handleChatMessage as EventListener);
+    };
+  }, []);
+
+  const startChatSession = () => {
+    console.log('Starting chat session...');
+    setIsLoading(true);
+    setConnectionError(null);
+    
+    // Generate session ID
+    const newSessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    setSessionId(newSessionId);
+    
+    // Send session start via WebSocket
+    sendMessage('chat.start_session', { 
+      session_id: newSessionId,
+      topic_uuid: topicUuid || null 
+    });
+  };
+
+  const handleSessionStarted = (data: any) => {
+    console.log('Chat session started:', data);
+    setSessionStarted(true);
+    setIsLoading(false);
+    setConnectionError(null);
+  };
+
+  const handleMessageReceived = (data: any) => {
+    console.log('Message received:', data);
+    
+    const newMessage: ChatMessage = {
+      id: chatHistory.length + 1,
+      type: 'assistant',
+      content: data.content,
+      timestamp: new Date().toISOString(),
+      model: data.model,
+      response_time_ms: data.response_time_ms
+    };
+    
+    setChatHistory(prev => [...prev, newMessage]);
+    setIsLoading(false);
+
+    // Save assistant message to local storage
+    if (memoryChat && topicUuid) {
+      memoryChat.addMessage(data.content, 'assistant');
     }
   };
 
-  // Handle sending message to LLM
+  const handleHistoryLoaded = (data: any) => {
+    console.log('Chat history loaded:', data);
+    if (data.messages && Array.isArray(data.messages)) {
+      setChatHistory(data.messages);
+    }
+  };
+
+  const handleSessionEnded = (data: any) => {
+    console.log('Chat session ended:', data);
+    setSessionStarted(false);
+    setSessionId(null);
+  };
+
   const handleSendMessage = async () => {
-    if (!inputText.trim() || isLoading) return;
+    if (!inputText.trim() || isLoading || !sessionId) return;
 
     const messageText = inputText.trim();
     setInputText('');
     setIsLoading(true);
-    setConnectionError(null);
 
     // Add user message to display
     const userMessage: ChatMessage = {
@@ -114,111 +207,24 @@ export const IntiTextChat: React.FC<IntiTextChatProps> = ({
     
     setChatHistory(prev => [...prev, userMessage]);
 
-    try {
-      // Save user message to local storage with auto-export
-      if (memoryChat && topicUuid) {
+    // Save user message to local storage with auto-export
+    if (memoryChat && topicUuid) {
+      try {
         const result = await memoryChat.addMessage(messageText, 'user');
         if (result.exportResults) {
           console.log('Auto-export triggered:', result.exportResults);
         }
-        await loadPendingTokens(); // Refresh pending count
+      } catch (error) {
+        console.error('Failed to save message to local storage:', error);
       }
-
-      // Prepare messages for LLM (last 10 for context)
-      const recentMessages = [...chatHistory.slice(-9), userMessage];
-      const llmMessages = recentMessages.map(msg => ({
-        role: msg.type === 'user' ? 'user' : 'assistant',
-        content: msg.content
-      }));
-
-      // Add system message
-      const systemMessage = {
-        role: 'system',
-        content: `You are Inti, a helpful and friendly creative assistant. The user's name is ${authState?.user?.displayName || 'User'}.${topicUuid ? ` You are discussing topic: ${topicUuid.substring(0, 8)}...` : ''}`
-      };
-
-      const startTime = Date.now();
-
-      // Call LLM API directly
-      const response = await fetch('/llm/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: 'mistralai/Mistral-7B-Instruct-v0.2',
-          messages: [systemMessage, ...llmMessages],
-          max_tokens: 512,
-          temperature: 0.7,
-          stream: false
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`LLM API error: ${response.status} ${response.statusText}`);
-      }
-
-      const responseData = await response.json();
-      const responseTime = Date.now() - startTime;
-      
-      if (responseData.choices && responseData.choices[0] && responseData.choices[0].message) {
-        const assistantContent = responseData.choices[0].message.content;
-
-        // Add assistant message to display
-        const assistantMessage: ChatMessage = {
-          id: chatHistory.length + 2,
-          type: 'assistant',
-          content: assistantContent,
-          timestamp: new Date().toISOString(),
-          model: 'mistralai/Mistral-7B-Instruct-v0.2',
-          response_time_ms: responseTime
-        };
-
-        setChatHistory(prev => [...prev, assistantMessage]);
-
-        // Save assistant message to local storage
-        if (memoryChat && topicUuid) {
-          const result = await memoryChat.addMessage(assistantContent, 'assistant');
-          if (result.exportResults) {
-            console.log('Auto-export triggered for assistant message:', result.exportResults);
-          }
-          await loadPendingTokens(); // Refresh pending count
-        }
-      } else {
-        throw new Error('Invalid response format from LLM');
-      }
-
-    } catch (error) {
-      console.error('Failed to send message:', error);
-      setConnectionError(error instanceof Error ? error.message : 'Failed to send message');
-      
-      // Add error message to display
-      const errorMessage: ChatMessage = {
-        id: chatHistory.length + 2,
-        type: 'assistant',
-        content: '❌ Sorry, I encountered an error processing your message. Please try again.',
-        timestamp: new Date().toISOString()
-      };
-      
-      setChatHistory(prev => [...prev, errorMessage]);
-    } finally {
-      setIsLoading(false);
     }
-  };
 
-  // Handle "Save to Memory" button
-  const handleSaveToMemory = async () => {
-    if (!memoryChat || !topicUuid) return;
-
-    try {
-      const result = await memoryChat.saveToMemory();
-      if (result.success && result.exportResults) {
-        console.log('Manual save to memory successful:', result.exportResults);
-        await loadPendingTokens(); // Refresh pending count
-      }
-    } catch (error) {
-      console.error('Save to memory failed:', error);
-    }
+    // Send message via WebSocket
+    sendMessage('chat.send_message', {
+      session_id: sessionId,
+      content: messageText,
+      topic_uuid: topicUuid || null
+    });
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -240,40 +246,29 @@ export const IntiTextChat: React.FC<IntiTextChatProps> = ({
             {topicUuid && <span className="topic-id">({topicUuid.substring(0, 8)}...)</span>}
           </h3>
           <div className="header-controls">
-            <span className="status connected">🟢 Direct LLM</span>
+            {isConnected ? (
+              <span className="status connected">🟢 Connected</span>
+            ) : (
+              <span className="status disconnected">🔴 Disconnected</span>
+            )}
             <button onClick={onClose} className="close-btn">✖️</button>
           </div>
         </div>
 
         {/* Memory Controls */}
         {topicUuid && (
-          <div className="memory-controls">
-            <button
-              onClick={handleSaveToMemory}
-              className="save-to-memory-btn"
-              title={`Save ${pendingTokens} pending tokens to memory`}
-            >
-              💾 Save to Memory
-              {pendingTokens > 0 && (
-                <span className="pending-badge">{pendingTokens}</span>
-              )}
-            </button>
-            
-            <button
-              onClick={loadChatHistory}
-              className="load-history-btn"
-              title="Reload conversation history"
-            >
-              📚 Reload History
-            </button>
-          </div>
+          <SimpleMemoryChat
+            topicUuid={topicUuid}
+            userId={authState?.user?.id || 1}
+            onMessageSent={(message) => console.log('Message sent:', message)}
+          />
         )}
 
         {/* Connection Error */}
         {connectionError && (
           <div className="error-message">
             ⚠️ {connectionError}
-            <button onClick={() => setConnectionError(null)} className="dismiss-btn">✖️</button>
+            <button onClick={startChatSession} className="retry-btn">Retry</button>
           </div>
         )}
 
@@ -282,7 +277,7 @@ export const IntiTextChat: React.FC<IntiTextChatProps> = ({
           {chatHistory.length === 0 && !isLoading && (
             <div className="empty-state">
               <p>👋 Start a conversation!</p>
-              {topicUuid && <p>Messages will be saved to topic: {topicUuid.substring(0, 8)}...</p>}
+              {topicUuid && <p>This chat will be saved to topic: {topicUuid.substring(0, 8)}...</p>}
             </div>
           )}
           
@@ -292,7 +287,7 @@ export const IntiTextChat: React.FC<IntiTextChatProps> = ({
                 <div className="message-text">{message.content}</div>
                 <div className="message-meta">
                   {message.type === 'assistant' && message.model && (
-                    <span className="model">🤖 {message.model.split('/')[1]}</span>
+                    <span className="model">🤖 {message.model}</span>
                   )}
                   {message.response_time_ms && (
                     <span className="response-time">⚡ {message.response_time_ms}ms</span>
@@ -327,13 +322,13 @@ export const IntiTextChat: React.FC<IntiTextChatProps> = ({
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder="Type your message... (Enter to send, Shift+Enter for new line)"
-            disabled={isLoading}
+            placeholder={isConnected ? "Type your message... (Enter to send, Shift+Enter for new line)" : "Connecting..."}
+            disabled={!isConnected || isLoading}
             rows={1}
           />
           <button
             onClick={handleSendMessage}
-            disabled={!inputText.trim() || isLoading}
+            disabled={!inputText.trim() || isLoading || !isConnected}
             className="send-btn"
           >
             {isLoading ? '⏳' : '➤'}
@@ -400,8 +395,16 @@ export const IntiTextChat: React.FC<IntiTextChatProps> = ({
           padding: 4px 8px;
           border-radius: 12px;
           font-weight: 500;
+        }
+
+        .status.connected {
           background: #d1fae5;
           color: #065f46;
+        }
+
+        .status.disconnected {
+          background: #fee2e2;
+          color: #991b1b;
         }
 
         .close-btn {
@@ -418,45 +421,6 @@ export const IntiTextChat: React.FC<IntiTextChatProps> = ({
           background: #f3f4f6;
         }
 
-        .memory-controls {
-          display: flex;
-          gap: 8px;
-          padding: 12px 16px;
-          background: #fafafa;
-          border-bottom: 1px solid #e5e7eb;
-        }
-
-        .save-to-memory-btn,
-        .load-history-btn {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          padding: 6px 12px;
-          border: 1px solid #d1d5db;
-          border-radius: 4px;
-          background: white;
-          cursor: pointer;
-          font-size: 13px;
-          font-weight: 500;
-          transition: all 0.2s;
-          position: relative;
-        }
-
-        .save-to-memory-btn:hover,
-        .load-history-btn:hover {
-          background: #f9fafb;
-          border-color: #9ca3af;
-        }
-
-        .pending-badge {
-          background: #ef4444;
-          color: white;
-          font-size: 10px;
-          padding: 1px 5px;
-          border-radius: 8px;
-          margin-left: 4px;
-        }
-
         .error-message {
           background: #fef2f2;
           border: 1px solid #fecaca;
@@ -470,12 +434,14 @@ export const IntiTextChat: React.FC<IntiTextChatProps> = ({
           font-size: 14px;
         }
 
-        .dismiss-btn {
-          background: none;
+        .retry-btn {
+          background: #dc2626;
+          color: white;
           border: none;
-          color: #991b1b;
+          padding: 4px 12px;
+          border-radius: 4px;
+          font-size: 12px;
           cursor: pointer;
-          padding: 0 4px;
         }
 
         .chat-messages {
@@ -627,3 +593,4 @@ export const IntiTextChat: React.FC<IntiTextChatProps> = ({
   );
 };
 
+export default IntiTextChatWithMemory;

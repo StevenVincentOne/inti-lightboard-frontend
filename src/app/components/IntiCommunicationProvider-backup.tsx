@@ -1,5 +1,4 @@
 // Combined Inti Communication and Authentication Provider
-// FIXED: Always connects to WebSocket even with stored auth
 // File: /frontend/src/app/components/IntiCommunicationProvider.tsx
 
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
@@ -40,9 +39,13 @@ const IntiCommunicationContext = createContext<IntiCommunicationContextType | un
 const REPLIT_WS_URL = 'wss://6d3f40b3-1e49-4b09-85e4-36ff422ee88b-00-psvr1owg24vj.janeway.replit.dev/api/inti-ws';
 
 // Helper function to extract profile image from user data with proper field mapping
-const extractProfileImage = (userData: any): string | null => {
+const extractProfileImage = (userData: Record<string, unknown>): string | null => {
   // Handle multiple possible field names from the backend
-  return userData.profileImage || userData.profile_image_url || userData.profile_image || null;
+  const profileImage = userData.profileImage as string;
+  const profileImageUrl = userData.profile_image_url as string;
+  const profileImageAlt = userData.profile_image as string;
+  
+  return profileImage || profileImageUrl || profileImageAlt || null;
 };
 
 export function IntiCommunicationProvider({ children }: { children: React.ReactNode }) {
@@ -56,6 +59,7 @@ export function IntiCommunicationProvider({ children }: { children: React.ReactN
   });
 
   const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const authCheckTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Handle incoming WebSocket messages
@@ -64,17 +68,13 @@ export function IntiCommunicationProvider({ children }: { children: React.ReactN
       const message = JSON.parse(event.data);
       const { type, data } = message;
 
-      // Store clientId if provided
-      if (message.clientId) {
-        setState(prev => ({ ...prev, clientId: message.clientId }));
-      }
+      console.log('[IntiComm] Received message:', { type, data });
 
       switch (type) {
-        case 'connection_established':
         case 'connection.established':
           console.log('[IntiComm] ✅ Connection established:', data);
           
-          // Check if we have authentication info  
+          // Check if connection includes authentication data
           if (data?.authenticated && data?.user && data.user.displayName && data.user.displayName !== 'Replit User') {
             const user: User = {
               id: data.user.id || data.user.userId || 'authenticated_user',
@@ -84,7 +84,7 @@ export function IntiCommunicationProvider({ children }: { children: React.ReactN
               profileImage: extractProfileImage(data.user)
             };
 
-            console.log('[IntiComm] ✅ Successfully authenticated user:', user.displayName);
+            console.log('[IntiComm] ✅ Authentication included in connection:', user.displayName);
             console.log('[IntiComm] Profile image extracted:', user.profileImage);
             
             const authData = { user, authenticated: true };
@@ -94,10 +94,10 @@ export function IntiCommunicationProvider({ children }: { children: React.ReactN
             setState(prev => ({
               ...prev,
               loading: false,
-              user,
-              authenticated: true,
               connected: true,
               clientId: data?.clientId || data?.connectionId || prev.clientId,
+              user,
+              authenticated: true,
               error: null
             }));
 
@@ -282,22 +282,16 @@ export function IntiCommunicationProvider({ children }: { children: React.ReactN
     }
   }, []);
 
-  // Send message via WebSocket - FIXED to include clientId
+  // Send message via WebSocket
   const sendMessage = useCallback((type: string, data?: unknown) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      // Updated to match Replit Agent's expected format
-      const message = { 
-        type, 
-        clientId: state.clientId || 'unknown',
-        data: data || {}, 
-        timestamp: Date.now() 
-      };
+      const message = { type, data, timestamp: Date.now() };
       wsRef.current.send(JSON.stringify(message));
       console.log('[IntiComm] Sent message:', message);
     } else {
       console.warn('[IntiComm] Cannot send message - WebSocket not connected:', { type, data });
     }
-  }, [state.clientId]);
+  }, []);
 
   // Connect to WebSocket
   const connect = useCallback(() => {
@@ -307,61 +301,78 @@ export function IntiCommunicationProvider({ children }: { children: React.ReactN
     }
 
     console.log('[IntiComm] Connecting to WebSocket...');
-
-    // Get session ID from various sources
-    const urlParams = new URLSearchParams(window.location.search);
-    const sessionFromUrl = urlParams.get('session');
-    const storedAuth = localStorage.getItem('inti_auth') || sessionStorage.getItem('inti_auth');
-    let sessionId = sessionFromUrl;
-
-    // Try to extract session from stored auth
-    if (!sessionId && storedAuth) {
-      try {
-        const parsed = JSON.parse(storedAuth);
-        sessionId = parsed.sessionId || (parsed.user?.id ? `user_${parsed.user.id}` : null);
-      } catch {}
-    }
-
-    // Fallback to legacy session storage
-    if (!sessionId) {
-      sessionId = localStorage.getItem('intellipedia_session') || 
-                  sessionStorage.getItem('sessionId') ||
-                  document.cookie.split(';').find(c => c.trim().startsWith('sessionId='))?.split('=')[1];
-    }
-
-    const wsUrl = sessionId 
-      ? `${REPLIT_WS_URL}?clientType=PWA&sessionId=${sessionId}`
-      : `${REPLIT_WS_URL}?clientType=PWA`;
-
-    console.log('[IntiComm] WebSocket URL:', wsUrl.replace(/sessionId=[^&]+/, 'sessionId=[REDACTED]'));
-
+    
     try {
+      // Extract session from URL if present and add to WebSocket URL
+      const urlParams = new URLSearchParams(window.location.search);
+      const sessionId = urlParams.get('session') || urlParams.get('sessionId');
+      
+      let wsUrl = REPLIT_WS_URL;
+      if (sessionId) {
+        wsUrl = `${REPLIT_WS_URL}?sessionId=${encodeURIComponent(sessionId)}`;
+        console.log('[IntiComm] Connecting with session ID in WebSocket URL');
+      }
+      
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
+      
+      if (sessionId) {
+        console.log('[IntiComm] Found session in URL parameter:', sessionId.substring(0, 8) + '...');
+      }
 
       ws.onopen = () => {
-        console.log('[IntiComm] ✅ WebSocket connected successfully');
-        setState(prev => ({ ...prev, connected: true }));
+        console.log('[IntiComm] WebSocket connected');
+        
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current);
+          reconnectTimeoutRef.current = null;
+        }
+
+        // Send authentication request with session if available
+        const authMessage: { type: string; timestamp: number; sessionId?: string } = { 
+          type: 'auth.check', 
+          timestamp: Date.now() 
+        };
+        
+        if (sessionId) {
+          authMessage.sessionId = sessionId;
+          console.log('[IntiComm] Sending auth check with session ID');
+        } else {
+          console.log('[IntiComm] Sending auth check without session ID');
+        }
+
+        ws.send(JSON.stringify(authMessage));
+
+        // Set timeout for authentication response
+        authCheckTimeoutRef.current = setTimeout(() => {
+          console.log('[IntiComm] No authentication response received within 10 seconds');
+          setState(prev => ({
+            ...prev,
+            loading: false,
+            authenticated: false,
+            error: 'Authentication timeout'
+          }));
+        }, 10000);
       };
 
       ws.onmessage = handleMessage;
 
       ws.onclose = (event) => {
-        console.log('[IntiComm] WebSocket closed:', event.code, event.reason);
+        console.log('[IntiComm] WebSocket disconnected:', event.code, event.reason);
+        wsRef.current = null;
+        
         setState(prev => ({
           ...prev,
           connected: false,
-          clientId: null,
-          error: event.reason || 'Connection closed'
+          clientId: null
         }));
-        wsRef.current = null;
 
-        // Attempt to reconnect after 5 seconds if not intentionally closed
-        if (event.code !== 1000) {
-          setTimeout(() => {
+        // Reconnect after 3 seconds if not intentionally closed
+        if (event.code !== 1000 && !reconnectTimeoutRef.current) {
+          reconnectTimeoutRef.current = setTimeout(() => {
             console.log('[IntiComm] Attempting to reconnect...');
             connect();
-          }, 5000);
+          }, 3000);
         }
       };
 
@@ -461,20 +472,21 @@ export function IntiCommunicationProvider({ children }: { children: React.ReactN
     connect();
   }, [connect]);
 
-  // Initialize connection on mount - FIXED: Always connect for real-time features
+  // Initialize connection on mount
   useEffect(() => {
     console.log('[IntiComm] Provider mounted, initializing...');
     
-    // Check for stored auth to set initial state
-    checkStoredAuth();
+    // First check if we have valid stored auth
+    if (!checkStoredAuth()) {
+      // If no stored auth, connect to WebSocket
+      connect();
+    }
     
-    // ALWAYS connect to WebSocket for real-time features (chat, updates, etc.)
-    console.log('[IntiComm] Establishing WebSocket connection for real-time features...');
-    connect();
-
-    // Cleanup on unmount
+    // Cleanup function
     return () => {
-      console.log('[IntiComm] Provider unmounting, cleaning up...');
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
       if (authCheckTimeoutRef.current) {
         clearTimeout(authCheckTimeoutRef.current);
       }
@@ -482,30 +494,44 @@ export function IntiCommunicationProvider({ children }: { children: React.ReactN
         wsRef.current.close();
       }
     };
-  }, []); // Empty deps to run only on mount
+  }, [connect, checkStoredAuth]);
 
-  const contextValue: IntiCommunicationContextType = {
-    ...state,
-    sendMessage,
-    sendVoiceTranscription,
-    logout,
-    refreshAuth
-  };
+  // Heartbeat to keep connection alive
+  useEffect(() => {
+    if (!state.connected) return;
+    
+    const heartbeat = setInterval(() => {
+      sendMessage('ping');
+    }, 30000);
+    
+    return () => clearInterval(heartbeat);
+  }, [state.connected, sendMessage]);
 
   return (
-    <IntiCommunicationContext.Provider value={contextValue}>
+    <IntiCommunicationContext.Provider
+      value={{
+        // State
+        ...state,
+        
+        // Actions
+        sendMessage,
+        sendVoiceTranscription,
+        logout,
+        refreshAuth
+      }}
+    >
       {children}
     </IntiCommunicationContext.Provider>
   );
 }
 
-export function useIntiCommunication() {
+export function useIntiCommunication(): IntiCommunicationContextType {
   const context = useContext(IntiCommunicationContext);
-  if (!context) {
-    throw new Error('useIntiCommunication must be used within IntiCommunicationProvider');
+  if (context === undefined) {
+    throw new Error('useIntiCommunication must be used within an IntiCommunicationProvider');
   }
   return context;
 }
 
-// Alias for backward compatibility with components expecting useAuth
+// Alias for backward compatibility
 export const useAuth = useIntiCommunication;

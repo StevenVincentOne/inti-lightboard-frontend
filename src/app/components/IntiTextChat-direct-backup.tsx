@@ -627,3 +627,4 @@ export const IntiTextChat: React.FC<IntiTextChatProps> = ({
   );
 };
 
+export default IntiTextChat;

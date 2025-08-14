@@ -116,24 +116,15 @@ export const useIntiCommunication = () => {
     return false;
   }, []);
 
-  const [clientId, setClientId] = useState<string | null>(null);
-
   const sendMessage = useCallback((type: string, data?: unknown) => {
     if (ws.current && ws.current.readyState === WebSocket.OPEN) {
-      // Updated to match Replit Agent's expected format
-      const message = {
-        type,
-        clientId: clientId || 'unknown',
-        data: data || {},
-        timestamp: Date.now()
-      };
-      const messageStr = JSON.stringify(message);
-      console.log('[IntiComm] Sending message:', messageStr);
-      ws.current.send(messageStr);
+      const message = JSON.stringify({ type, data });
+      console.log('[IntiComm] Sending message:', message);
+      ws.current.send(message);
     } else {
-      console.error('[IntiComm] Cannot send message - WebSocket not connected:', { type, data });
+      console.error('[IntiComm] Cannot send message, WebSocket is not open.');
     }
-  }, [clientId]);
+  }, []);
 
   const connect = useCallback(() => {
     if (ws.current && ws.current.readyState === WebSocket.OPEN) {
@@ -165,20 +156,6 @@ export const useIntiCommunication = () => {
       const message = JSON.parse(event.data);
       console.log('[IntiComm] Received message:', message);
 
-      // Handle connection establishment (Replit Agent format)
-      if (message.type === 'connection_established') {
-        console.log('[IntiComm] Connection established, setting client ID:', message.data.connectionId);
-        setClientId(message.data.connectionId || message.data.clientId);
-        
-        // If authenticated, update auth state
-        if (message.data.authenticated !== undefined) {
-          setAuthState(prev => ({
-            ...prev,
-            authenticated: message.data.authenticated
-          }));
-        }
-      }
-
       // Set last message for components to consume
       setLastMessage({
         type: message.type,
@@ -186,21 +163,14 @@ export const useIntiCommunication = () => {
         timestamp: Date.now()
       });
 
-      // Handle text chat messages - forward to text chat component
-      if (message.type.startsWith('text_chat.')) {
-        window.dispatchEvent(new CustomEvent('intiChatMessage', { 
-          detail: message 
-        }));
-      }
-
-      // Handle general chat messages (legacy support)
+      // Handle chat messages (NEW)
       if (message.type.startsWith('chat.')) {
+        // Forward chat messages to text chat component via custom event
         window.dispatchEvent(new CustomEvent('intiChatMessage', { 
           detail: message 
         }));
       }
 
-      // Handle legacy connection established
       if (message.type === 'connection.established') {
         console.log('[IntiComm] Authentication status received from server:', message.data);
         
@@ -220,31 +190,15 @@ export const useIntiCommunication = () => {
           // Only clear auth if we don't have valid stored auth
           const hasStoredAuth = localStorage.getItem('inti_auth') || sessionStorage.getItem('inti_auth');
           if (!hasStoredAuth) {
-            console.log('[IntiComm] No server auth and no stored auth - setting unauthenticated state');
             setAuthState({
               loading: false,
               authenticated: false,
               user: null,
             });
           } else {
-            console.log('[IntiComm] Server session not recognized, but maintaining stored authentication for user experience');
+            console.warn('[IntiComm] Server says not authenticated but we have stored auth. Keeping stored auth.');
             setAuthState(prev => ({ ...prev, loading: false }));
           }
-        }
-      }
-
-      // Handle errors
-      if (message.type === 'error') {
-        console.error('[IntiComm] WebSocket error:', message.data);
-        
-        // If authentication error, clear stored auth
-        if (message.data.message && message.data.message.includes('Authentication')) {
-          localStorage.removeItem('inti_auth');
-          setAuthState({
-            loading: false,
-            authenticated: false,
-            user: null
-          });
         }
       }
     };
@@ -252,14 +206,13 @@ export const useIntiCommunication = () => {
     ws.current.onclose = () => {
       console.log('[IntiComm] WebSocket connection closed.');
       setIsConnected(false);
-      setClientId(null);
-      // Don't clear auth state on disconnect - user might still be authenticated
+      setAuthState({ loading: false, authenticated: false, user: null });
     };
 
     ws.current.onerror = (error) => {
       console.error('[IntiComm] WebSocket error:', error);
       setIsConnected(false);
-      setClientId(null);
+      setAuthState({ loading: false, authenticated: false, user: null });
     };
   }, [getSessionId]);
 
@@ -278,9 +231,6 @@ export const useIntiCommunication = () => {
     isConnected,
     authState,
     lastMessage,
-    clientId,
     sendMessage,
-    connect,
-    checkStoredAuth
   };
 };

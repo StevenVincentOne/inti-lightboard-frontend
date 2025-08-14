@@ -1,0 +1,346 @@
+// Text Chat Interface Component - Secure WebSocket Only
+// No direct LLM calls - all messages go through authenticated WebSocket bridge
+// File: /frontend/src/app/components/IntiTextChat.tsx
+
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useIntiCommunication } from '../hooks/useIntiCommunication';
+
+interface ChatMessage {
+  id: string;
+  type: 'user' | 'assistant' | 'system';
+  content: string;
+  timestamp: number;
+  metadata?: {
+    llmModel?: string;
+    responseTimeMs?: number;
+    tokenCount?: number;
+  };
+}
+
+interface IntiTextChatProps {
+  isVisible: boolean;
+  onClose: () => void;
+  topicUuid?: string;  // Optional - will work without it
+}
+
+export const IntiTextChat: React.FC<IntiTextChatProps> = ({
+  isVisible,
+  onClose,
+  topicUuid  // Optional prop - defaults to undefined
+}) => {
+  // Get WebSocket communication hook
+  const { sendMessage, isConnected, authState } = useIntiCommunication();
+  
+  // Local state
+  const [inputText, setInputText] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [sessionId, setSessionId] = useState<string>('');
+  const [error, setError] = useState<string | null>(null);
+  
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const messageListenerRef = useRef<((data: any) => void) | null>(null);
+
+  // Generate session ID when chat becomes visible
+  useEffect(() => {
+    if (isVisible && !sessionId) {
+      // Generate a unique session ID for this chat session
+      const newSessionId = `chat_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      setSessionId(newSessionId);
+      console.log('[TextChat] Starting session:', newSessionId);
+      console.log('[TextChat] Topic UUID:', topicUuid || 'none');
+      
+      // Send session start message through WebSocket
+      if (isConnected && sendMessage) {
+        sendMessage('text_chat.start_session', {
+          sessionId: newSessionId,
+          topicUuid: topicUuid || null,  // Send null if no topic
+          context: {
+            user: authState?.user?.displayName,
+            timestamp: Date.now()
+          }
+        });
+      }
+    }
+  }, [isVisible, sessionId, isConnected, sendMessage, topicUuid, authState]);
+
+  // Set up WebSocket message listener
+  useEffect(() => {
+    if (!isVisible || typeof window === 'undefined') return;
+
+    // Create message listener
+    const handleWebSocketMessage = (message: any) => {
+      console.log('[TextChat] Received WebSocket message:', message.type);
+      
+      // Handle different message types
+      switch (message.type) {
+        case 'text_chat.session_started':
+          console.log('[TextChat] Session confirmed:', message.data);
+          break;
+          
+        case 'text_chat.message':
+          // Received assistant response
+          if (message.data?.content) {
+            const assistantMessage: ChatMessage = {
+              id: message.data.messageId || Date.now().toString(),
+              type: 'assistant',
+              content: message.data.content,
+              timestamp: message.data.timestamp || Date.now(),
+              metadata: message.data.metadata
+            };
+            
+            setMessages(prev => [...prev, assistantMessage]);
+            setIsLoading(false);
+            
+            // Log metadata for debugging
+            if (message.data.metadata) {
+              console.log('[TextChat] Response metadata:', message.data.metadata);
+            }
+          }
+          break;
+          
+        case 'text_chat.error':
+          console.error('[TextChat] Error:', message.data);
+          setError(message.data?.message || 'An error occurred');
+          setIsLoading(false);
+          break;
+          
+        case 'text_chat.history':
+          // Handle chat history if needed
+          if (message.data?.messages) {
+            const historyMessages = message.data.messages.map((msg: any) => ({
+              id: msg.id || Date.now().toString(),
+              type: msg.message_type === 'user' ? 'user' : 'assistant',
+              content: msg.content,
+              timestamp: new Date(msg.created_at).getTime()
+            }));
+            setMessages(historyMessages);
+          }
+          break;
+      }
+    };
+
+    // Register the listener if window.intiWebSocket exists
+    if ((window as any).intiWebSocket) {
+      messageListenerRef.current = handleWebSocketMessage;
+      (window as any).intiWebSocket.addMessageListener(handleWebSocketMessage);
+      
+      // Cleanup on unmount
+      return () => {
+        if (messageListenerRef.current && (window as any).intiWebSocket) {
+          (window as any).intiWebSocket.removeMessageListener(messageListenerRef.current);
+          messageListenerRef.current = null;
+        }
+      };
+    } else {
+      console.log('[TextChat] WebSocket not available yet');
+    }
+  }, [isVisible]);
+
+  // Request chat history when session starts (only if topic provided)
+  useEffect(() => {
+    if (sessionId && isConnected && sendMessage && topicUuid) {
+      console.log('[TextChat] Requesting history for topic:', topicUuid);
+      sendMessage('text_chat.get_history', {
+        sessionId,
+        topicUuid: topicUuid,
+        limit: 50
+      });
+    }
+  }, [sessionId, isConnected, sendMessage, topicUuid]);
+
+  // Scroll to bottom when new messages arrive
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
+  // Auto-resize textarea
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+    }
+  }, [inputText]);
+
+  // Send message through WebSocket (no direct LLM calls)
+  const handleSendMessage = useCallback(async () => {
+    if (!inputText.trim() || isLoading || !isConnected) return;
+
+    const messageContent = inputText.trim();
+    setInputText('');
+    setIsLoading(true);
+    setError(null);
+
+    // Add user message to local state immediately
+    const userMessage: ChatMessage = {
+      id: Date.now().toString(),
+      type: 'user',
+      content: messageContent,
+      timestamp: Date.now()
+    };
+    setMessages(prev => [...prev, userMessage]);
+
+    console.log('[TextChat] Sending message through WebSocket');
+    console.log('[TextChat] Topic UUID:', topicUuid || 'none');
+    console.log('[TextChat] Session ID:', sessionId);
+
+    // Send message through WebSocket bridge - the ONLY way to reach LLM
+    if (sendMessage) {
+      sendMessage('text_chat.send_message', {
+        sessionId,
+        content: messageContent,
+        topicUuid: topicUuid || null,  // Send null if no topic
+        timestamp: Date.now()
+      });
+    } else {
+      console.error('[TextChat] sendMessage function not available');
+      setError('Connection error. Please refresh and try again.');
+      setIsLoading(false);
+    }
+  }, [inputText, isLoading, isConnected, sendMessage, sessionId, topicUuid]);
+
+  // Handle Enter key
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
+  };
+
+  if (!isVisible) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+      <div className="bg-gray-900 rounded-lg shadow-xl w-full max-w-2xl h-[80vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-gray-700">
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl font-semibold text-white">
+              Inti Text Chat
+            </h2>
+            {topicUuid && (
+              <span className="text-xs text-gray-400">
+                Topic: {topicUuid.substring(0, 8)}...
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {!isConnected && (
+              <span className="text-xs text-yellow-400">Disconnected</span>
+            )}
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-white transition-colors"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        {/* Messages */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {messages.length === 0 && (
+            <div className="text-center text-gray-500 mt-8">
+              {topicUuid 
+                ? "Start a conversation about your current topic..."
+                : "Start a conversation with Inti..."}
+            </div>
+          )}
+          
+          {messages.map((message) => (
+            <div
+              key={message.id}
+              className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
+            >
+              <div
+                className={`max-w-[80%] rounded-lg p-3 ${
+                  message.type === 'user'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-700 text-gray-100'
+                }`}
+              >
+                <div className="whitespace-pre-wrap break-words">
+                  {message.content}
+                </div>
+                {message.metadata && (
+                  <div className="mt-2 text-xs opacity-70">
+                    {message.metadata.llmModel && `🤖 ${message.metadata.llmModel}`}
+                    {message.metadata.responseTimeMs && ` • ⚡ ${message.metadata.responseTimeMs}ms`}
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+          
+          {isLoading && (
+            <div className="flex justify-start">
+              <div className="bg-gray-700 text-gray-100 rounded-lg p-3">
+                <div className="flex items-center gap-2">
+                  <div className="animate-pulse">Inti is thinking...</div>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {error && (
+            <div className="flex justify-center">
+              <div className="bg-red-600/20 text-red-400 rounded-lg p-3 text-sm">
+                {error}
+              </div>
+            </div>
+          )}
+          
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* Input */}
+        <div className="p-4 border-t border-gray-700">
+          <div className="flex gap-2">
+            <textarea
+              ref={textareaRef}
+              value={inputText}
+              onChange={(e) => setInputText(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={
+                isConnected 
+                  ? "Type your message... (Enter to send, Shift+Enter for new line)"
+                  : "Connecting to Inti..."
+              }
+              disabled={!isConnected || isLoading}
+              className="flex-1 bg-gray-800 text-white rounded-lg px-4 py-2 resize-none max-h-32 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+              rows={1}
+            />
+            <button
+              onClick={handleSendMessage}
+              disabled={!inputText.trim() || isLoading || !isConnected}
+              className="bg-blue-600 text-white rounded-lg px-6 py-2 hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isLoading ? (
+                <span className="animate-pulse">...</span>
+              ) : (
+                'Send'
+              )}
+            </button>
+          </div>
+          
+          {/* Status bar */}
+          <div className="mt-2 text-xs text-gray-500 flex justify-between">
+            <span>
+              {isConnected ? '🟢 Secure WebSocket' : '🔴 Disconnected'}
+            </span>
+            <span>
+              Session: {sessionId ? sessionId.substring(0, 12) + '...' : 'not started'}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
