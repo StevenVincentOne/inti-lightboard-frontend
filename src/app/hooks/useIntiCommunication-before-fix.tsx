@@ -131,8 +131,8 @@ export const useIntiCommunication = () => {
     return false;
   }, []);
 
-  // Enhanced message sending with backward compatibility
-  const sendMessage = useCallback((messageOrType: any, dataOrWaitForResponse?: any, waitForResponse?: boolean): Promise<any> => {
+  // Enhanced message sending with timeout and validation
+  const sendMessage = useCallback((message: any, waitForResponse = false): Promise<any> => {
     return new Promise((resolve, reject) => {
       if (!ws.current || ws.current.readyState !== WebSocket.OPEN) {
         reject(new Error('WebSocket not connected'));
@@ -140,52 +140,27 @@ export const useIntiCommunication = () => {
       }
 
       try {
+        // Convert legacy message format if needed
         let formattedMessage: IntiBaseMessage;
-        let shouldWaitForResponse = false;
-
-        // Handle different call patterns for backward compatibility
-        if (typeof messageOrType === 'string') {
-          // Legacy format: sendMessage(type, data) or sendMessage(type, data, waitForResponse)
-          const messageType = messageOrType;
-          let messageData = dataOrWaitForResponse || {};
-          shouldWaitForResponse = waitForResponse || false;
-          
-          // Auto-inject authentication data for auth-required messages
-          const authRequiredMessages = ['text_chat.start_session', 'text_chat.send_message', 'text_chat.get_history'];
-          if (authRequiredMessages.includes(messageType)) {
-            const sessionId = getSessionId();
-            messageData = {
-              ...messageData,
-              authSessionId: sessionId,
-              clientType: 'PWA'
-            };
-            console.log('[IntiComm] Auto-injecting auth data for:', messageType);
-          }
-          
-          console.log('[IntiComm] Legacy message format:', messageType, 'converting to new format');
-          formattedMessage = createMessage(messageType as any, messageData);
-        } else if (messageOrType && typeof messageOrType === 'object') {
-          // New format: sendMessage(messageObject, waitForResponse)
-          shouldWaitForResponse = typeof dataOrWaitForResponse === 'boolean' ? dataOrWaitForResponse : false;
-          
-          if (!messageOrType.version) {
-            // Convert legacy object to new format
-            formattedMessage = createMessage(messageOrType.type, messageOrType.data);
-          } else {
-            formattedMessage = messageOrType;
-          }
-        } else {
-          reject(new Error('Invalid message format'));
+        if (typeof message === 'string') {
+          // Handle raw string messages (legacy)
+          ws.current.send(message);
+          resolve(null);
           return;
+        } else if (!message.version) {
+          // Convert to new format
+          formattedMessage = createMessage(message.type, message.data);
+        } else {
+          formattedMessage = message;
         }
 
-        // Validate message (but don't reject for backward compatibility)
+        // Validate message
         if (!validateMessage(formattedMessage)) {
-          console.warn('[IntiComm] Message validation failed, sending anyway for compatibility:', formattedMessage);
+          console.warn('[IntiComm] Invalid message format, sending anyway for compatibility');
         }
 
         // Handle pending responses
-        if (shouldWaitForResponse && formattedMessage.id) {
+        if (waitForResponse && formattedMessage.id) {
           const timeout = setTimeout(() => {
             pendingMessages.current.delete(formattedMessage.id!);
             reject(new Error(`Message timeout: ${formattedMessage.type}`));
@@ -201,7 +176,7 @@ export const useIntiCommunication = () => {
         console.log('[IntiComm] Sending message:', formattedMessage.type, formattedMessage.version || 'legacy');
         ws.current.send(JSON.stringify(formattedMessage));
         
-        if (!shouldWaitForResponse) {
+        if (!waitForResponse) {
           resolve(null);
         }
       } catch (error) {
@@ -402,15 +377,6 @@ export const useIntiCommunication = () => {
           lastError: null
         }));
         startHeartbeat();
-        
-        // Send explicit authentication request to ensure backend sets client.authenticated = true
-        const authMessage = createMessage('auth.request' as any, { sessionId });
-        console.log('[IntiComm] Sending explicit authentication request');
-        setTimeout(() => {
-          if (ws.current?.readyState === WebSocket.OPEN) {
-            ws.current.send(JSON.stringify(authMessage));
-          }
-        }, 100); // Small delay to ensure connection is fully established
       };
       
       ws.current.onmessage = handleMessage;

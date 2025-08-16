@@ -23,7 +23,7 @@ import clsx from "clsx";
 import { useBackendServerUrl } from "./useBackendServerUrl";
 import { COOKIE_CONSENT_STORAGE_KEY } from "./ConsentModal";
 import { IntiFloatingLogo } from "./IntiFloatingLogo";
-import { IntiTextChatSecure as IntiTextChat } from "./components/IntiTextChat-secure";
+import IntiTextChat from "./components/IntiTextChat-Direct-Secure";
 import { useAuth } from "./components/IntiCommunicationProvider";
 
 const Unmute = () => {
@@ -296,6 +296,7 @@ const Unmute = () => {
         </header>
         
         {/* Simple test message to verify workflow */}
+        {user && console.log("[DEBUG] Displaying welcome for user:", { displayName: user.displayName, username: user.username, fullUser: user })}
         {user && (
           <div className="text-gray-800 text-xl font-semibold mt-8 mb-4 text-center z-20 drop-shadow-md">
             Welcome {user.displayName || user.username}!
