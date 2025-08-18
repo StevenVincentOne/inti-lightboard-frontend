@@ -18,7 +18,7 @@ interface UseUCOOptions {
 
 export function useUCO(options: UseUCOOptions = {}) {
   const {
-    autoSync = true,
+    autoSync = false,
     syncInterval = 5000, // 30 seconds
     onUpdate
   } = options;
@@ -217,16 +217,16 @@ export function useUCO(options: UseUCOOptions = {}) {
   
   // Set up auto-sync
   useEffect(() => {
-    if (autoSync && wsRef.current) {
-      syncTimerRef.current = setInterval(() => {
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
-          wsRef.current.send(JSON.stringify({
-            type: 'uco.get_state',
-            timestamp: Date.now()
-          }));
-        }
-      }, syncInterval);
-    }
+    // DISABLED:     if (autoSync && wsRef.current) {
+    // DISABLED:       syncTimerRef.current = setInterval(() => {
+    // DISABLED:         if (wsRef.current?.readyState === WebSocket.OPEN) {
+    // DISABLED:           wsRef.current.send(JSON.stringify({
+    // DISABLED:             type: 'uco.get_state',
+    // DISABLED:             timestamp: Date.now()
+    // DISABLED:           }));
+    // DISABLED:         }
+    // DISABLED:       }, syncInterval);
+    // DISABLED: }
     
     return () => {
       if (syncTimerRef.current) {

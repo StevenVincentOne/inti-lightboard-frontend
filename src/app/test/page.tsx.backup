@@ -1,7 +1,0 @@
-'use client';
-
-import IntiDataTestPage from './IntiDataTestPage';
-
-export default function TestPage() {
-  return <IntiDataTestPage />;
-}

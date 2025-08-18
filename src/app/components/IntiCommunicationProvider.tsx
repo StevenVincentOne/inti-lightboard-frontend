@@ -351,10 +351,42 @@ export function IntiCommunicationProvider({ children }: { children: React.ReactN
     console.log('[IntiComm] Connecting to WebSocket...');
 
     // Get session ID from various sources
+    // Debug URL state
+    console.log('[IntiComm] Current full URL:', window.location.href);
+    console.log('[IntiComm] URL search string:', window.location.search);
+    console.log('[IntiComm] URL pathname:', window.location.pathname);
+    
     const urlParams = new URLSearchParams(window.location.search);
-    const sessionFromUrl = urlParams.get('session');
+    // FIXED: Check localStorage FIRST for cross-page persistence
+    let sessionId = localStorage.getItem('inti_session') || sessionStorage.getItem('inti_session');
+    
+    if (sessionId) {
+      console.log('[IntiComm] Found stored session:', sessionId.substring(0, 8) + '...');
+    } else {
+      // No stored session, check URL
+      const sessionFromUrl = urlParams.get('session');
+      console.log("[IntiComm] Session from URL:", sessionFromUrl);
+      
+      if (sessionFromUrl) {
+        sessionId = sessionFromUrl;
+      } else if (window.location.href.includes('session=')) {
+        // Fallback: Try to extract from href if URLSearchParams failed
+        const match = window.location.href.match(/[?&]session=([^&]+)/);
+        if (match) {
+          sessionId = match[1];
+          console.log('[IntiComm] Extracted session from href:', sessionId);
+        }
+      }
+      
+      // Store any new session found for future use
+      if (sessionId) {
+        localStorage.setItem('inti_session', sessionId);
+        sessionStorage.setItem('inti_session', sessionId);
+        console.log('[IntiComm] Session stored for cross-page persistence');
+      }
+    }
+    
     const storedAuth = localStorage.getItem('inti_auth') || sessionStorage.getItem('inti_auth');
-    let sessionId = sessionFromUrl;
 
     // Try to extract session from stored auth
     if (!sessionId && storedAuth) {
@@ -382,6 +414,7 @@ export function IntiCommunicationProvider({ children }: { children: React.ReactN
                   document.cookie.split(';').find(c => c.trim().startsWith('sessionId='))?.split('=')[1];
     }
 
+    console.log("[IntiComm] Using session ID:", sessionId || "none");
     const wsUrl = sessionId 
       ? `${REPLIT_WS_URL}?clientType=PWA&sessionId=${sessionId}`
       : `${REPLIT_WS_URL}?clientType=PWA`;
@@ -395,6 +428,16 @@ export function IntiCommunicationProvider({ children }: { children: React.ReactN
       ws.onopen = () => {
         console.log('[IntiComm] ✅ WebSocket connected successfully');
         setState(prev => ({ ...prev, connected: true }));
+        
+        // Send authentication with session if available
+        if (sessionId) {
+          console.log('[IntiComm] Sending explicit authentication request');
+          ws.send(JSON.stringify({
+            type: 'auth',
+            session: sessionId,
+            clientType: 'PWA'
+          }));
+        }
       };
 
       ws.onmessage = handleMessage;
@@ -561,4 +604,4 @@ export function useIntiCommunication() {
 }
 
 // Alias for backward compatibility with components expecting useAuth
-export const useAuth = useIntiCommunication;
+export const useAuth = useIntiCommunication;// Cache bust: 1755478521

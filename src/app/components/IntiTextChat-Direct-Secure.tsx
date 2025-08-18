@@ -259,7 +259,7 @@ export default function IntiTextChatDirectSecure({
   }, []);
 
   if (!isVisible) {
-    console.log('[TextChat-Direct-Secure] Component not visible, returning null');
+    // console.log('[TextChat-Direct-Secure] Component not visible, returning null');
     return null;
   }
 
