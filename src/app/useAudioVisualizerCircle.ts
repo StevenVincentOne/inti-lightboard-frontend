@@ -11,8 +11,8 @@ const ANIMATION_DURATION = 500; // milliseconds
 
 const INTERRUPTION_CHAR = "—"; // em-dash
 
-// Default profile image path
-const DEFAULT_USER_PROFILE_IMAGE = '/default-user-profile.png';
+// No default profile image needed
+const DEFAULT_USER_PROFILE_IMAGE = null;
 
 const sampleToNormalizedRadius = (x: number) => {
   return 0.8 + 0.2 * Math.tanh(x * 2);
@@ -115,8 +115,13 @@ const drawUserProfileImage = (
   const centerY = positioning.centerY;
   const logoSize = positioning.radius * 1.7; // Same size as Inti logo
 
-  // Determine which image to use: user profile, default, or text fallback
-  const imageToUse = profileImageUrl || DEFAULT_USER_PROFILE_IMAGE;
+  // If no profile image, just use text fallback
+  if (!profileImageUrl) {
+    drawTextLogo(canvasCtx, centerX, centerY, positioning, "U");
+    return;
+  }
+  
+  const imageToUse = profileImageUrl;
 
   // Try to load the profile image (either user's or default)
   const img = new Image();
@@ -137,32 +142,15 @@ const drawUserProfileImage = (
       drawProfileImage(canvasCtx, img, centerX, centerY, logoSize, positioning);
     };
     img.onerror = () => {
-      // If this is already the default image failing, fall back to text
-      if (imageToUse === DEFAULT_USER_PROFILE_IMAGE) {
-        console.warn('Default profile image failed to load, using text fallback');
-        drawTextLogo(canvasCtx, centerX, centerY, positioning, "U");
-      } else {
-        // User image failed, try the default image
-        console.log('User profile image failed to load, trying default profile image');
-        drawUserProfileImageFallback(canvas, canvasCtx, positioning, DEFAULT_USER_PROFILE_IMAGE);
-      }
+      // User image failed, use text fallback
+      console.log('User profile image failed to load, using text fallback');
+      drawTextLogo(canvasCtx, centerX, centerY, positioning, "U");
     };
     img.src = imageToUse;
     canvasCache[cacheKey] = img; // Cache the loading image
     
-    // Show loading state - try default image if we're loading a user image
-    if (profileImageUrl && imageToUse !== DEFAULT_USER_PROFILE_IMAGE) {
-      // Try to show default while user image loads
-      const defaultCacheKey = `user-profile-cache-${DEFAULT_USER_PROFILE_IMAGE}`;
-      const defaultCachedImg = canvasCache[defaultCacheKey];
-      if (defaultCachedImg && defaultCachedImg.complete) {
-        drawProfileImage(canvasCtx, defaultCachedImg, centerX, centerY, logoSize, positioning);
-      } else {
-        drawTextLogo(canvasCtx, centerX, centerY, positioning, "U");
-      }
-    } else {
-      drawTextLogo(canvasCtx, centerX, centerY, positioning, "U");
-    }
+    // Show text fallback while loading
+    drawTextLogo(canvasCtx, centerX, centerY, positioning, "U");
   }
 };
 

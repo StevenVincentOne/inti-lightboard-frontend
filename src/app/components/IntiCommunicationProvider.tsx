@@ -58,6 +58,35 @@ export function IntiCommunicationProvider({ children }: { children: React.ReactN
   const wsRef = useRef<WebSocket | null>(null);
   const authCheckTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Handle authentication success
+  const handleAuthenticationSuccess = useCallback((userData: any) => {
+    console.log('[IntiComm] handleAuthenticationSuccess called with:', userData);
+    
+    if (userData && userData.displayName && userData.displayName !== 'Replit User') {
+      const user: User = {
+        id: userData.id || userData.userId || 'authenticated_user',
+        displayName: userData.displayName,
+        username: userData.username || userData.displayName,
+        email: userData.email || null,
+        profileImage: extractProfileImage(userData)
+      };
+
+      console.log('[IntiComm] ✅ Successfully authenticated user via handleAuthenticationSuccess:', user.displayName);
+      
+      const authData = { user, authenticated: true };
+      localStorage.setItem('inti_auth', JSON.stringify(authData));
+      sessionStorage.setItem('inti_auth', JSON.stringify(authData));
+
+      setState(prev => ({
+        ...prev,
+        loading: false,
+        user,
+        authenticated: true,
+        error: null
+      }));
+    }
+  }, []);
+
   // Handle incoming WebSocket messages
   const handleMessage = useCallback((event: MessageEvent) => {
     try {
@@ -274,13 +303,26 @@ export function IntiCommunicationProvider({ children }: { children: React.ReactN
           }
           break;
 
+        case 'connected':
+          console.log('[IntiComm] ✅ Connection established:', message);
+          setState(prev => ({ 
+            ...prev, 
+            connected: true,
+            loading: false,
+            clientId: data?.clientId || prev.clientId
+          }));
+          if (data?.user) {
+            handleAuthenticationSuccess(data.user);
+          }
+          break;
+
         default:
           console.log('[IntiComm] Unhandled message type:', type);
       }
     } catch (error) {
       console.error('[IntiComm] Error parsing message:', error);
     }
-  }, []);
+  }, [handleAuthenticationSuccess]);
 
   // Send message via WebSocket - FIXED to include clientId
   const sendMessage = useCallback((type: string, data?: unknown) => {
@@ -320,6 +362,17 @@ export function IntiCommunicationProvider({ children }: { children: React.ReactN
         const parsed = JSON.parse(storedAuth);
         sessionId = parsed.sessionId || (parsed.user?.id ? `user_${parsed.user.id}` : null);
       } catch {}
+    }
+
+    // CRITICAL: Extract session cookie for WebSocket authentication
+    if (!sessionId) {
+      // Look for connect.sid cookie (Express session cookie)
+      const cookies = document.cookie.split(';');
+      const sessionCookie = cookies.find(c => c.trim().startsWith('connect.sid='));
+      if (sessionCookie) {
+        sessionId = sessionCookie.split('=')[1];
+        console.log('[IntiComm] Found session cookie for WebSocket authentication');
+      }
     }
 
     // Fallback to legacy session storage

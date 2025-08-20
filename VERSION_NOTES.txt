@@ -1,0 +1,26 @@
+Version: v15.9
+Date: August 19, 2025
+Author: Claude/Steve
+
+Changes:
+- Fix handleAuthenticationSuccess not defined error
+- Remove auth.session message (backend doesn't support it)
+- Fix clientId properly set from auth response
+- Comment out calls to undefined handleAuthenticationSuccess
+
+Problem from v15.8:
+- handleAuthenticationSuccess function was called but not defined
+- Backend returned "Unknown message type: auth.session"
+- Still getting "Authentication required for text_chat.start_session"
+
+Solution:
+- Remove calls to handleAuthenticationSuccess (not needed)
+- Remove auth.session message sending
+- Rely on sessionId in URL query string for authentication
+- Ensure clientId is set properly from auth.response
+
+Testing:
+- Open https://inti.intellipedia.ai
+- Should not see "handleAuthenticationSuccess is not defined" error
+- Click Inti logo to open text chat
+- Text chat should work without authentication errors

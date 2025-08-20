@@ -23,7 +23,7 @@ import clsx from "clsx";
 import { useBackendServerUrl } from "./useBackendServerUrl";
 import { COOKIE_CONSENT_STORAGE_KEY } from "./ConsentModal";
 import { IntiFloatingLogo } from "./IntiFloatingLogo";
-import { IntiTextChatSecure as IntiTextChat } from "./components/IntiTextChat-secure";
+import { IntiTextChatSecure as IntiTextChat } from "./components/IntiTextChatSecure";
 import { useAuth } from "./components/IntiCommunicationProvider";
 
 const Unmute = () => {

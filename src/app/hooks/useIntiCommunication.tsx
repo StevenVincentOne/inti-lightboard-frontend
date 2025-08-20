@@ -159,11 +159,58 @@ export const useIntiCommunication = () => {
     ws.current.onopen = () => {
       console.log('[IntiComm] WebSocket connection established.');
       setIsConnected(true);
+      // Authentication happens via sessionId in the connection URL
     };
 
     ws.current.onmessage = (event) => {
       const message = JSON.parse(event.data);
       console.log('[IntiComm] Received message:', message);
+
+      // Handle auth.response message
+      if (message.type === 'auth.response') {
+        console.log('[IntiComm] 🔐 Auth response received:', message);
+        if (message.success && message.authenticated) {
+          setIsConnected(true);
+          setClientId(message.clientId || message.data?.clientId || 'authenticated');
+          
+          if (message.user) {
+            console.log('[IntiComm] ✅ Successfully authenticated user:', message.user.displayName || message.user.username);
+            // Store authenticated user
+            setAuthState({
+              loading: false,
+              authenticated: true,
+              user: message.user
+            });
+            const authData = { user: message.user, authenticated: true };
+            localStorage.setItem('inti_auth', JSON.stringify(authData));
+            sessionStorage.setItem('inti_auth', JSON.stringify(authData));
+          }
+        } else {
+          console.log('[IntiComm] ❌ Authentication failed:', message.message || 'Unknown error');
+        }
+        return;
+      }
+      
+      // Handle "connected" message type (simple connection acknowledgment)
+      if (message.type === 'connected') {
+        console.log('[IntiComm] ✅ Connection established:', message);
+        setIsConnected(true);
+        if (message.data) {
+          setClientId(message.data.clientId || message.clientId);
+          if (message.data.user) {
+            // Store authenticated user
+            setAuthState({
+              loading: false,
+              authenticated: true,
+              user: message.data.user
+            });
+            const authData = { user: message.data.user, authenticated: true };
+            localStorage.setItem('inti_auth', JSON.stringify(authData));
+            sessionStorage.setItem('inti_auth', JSON.stringify(authData));
+          }
+        }
+        return; // Don't process further
+      }
 
       // Handle connection establishment (Replit Agent format)
       if (message.type === 'connection_established') {
