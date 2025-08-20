@@ -18,15 +18,37 @@ interface ActiveDraftStatus {
   draft_loaded_at: string | null;
 }
 
+// UCO Subscription Fields from specification
+const USER_SUBSCRIPTION_FIELDS = [
+  'id', 'display_name', 'email', 'role', 'bio', 'interests_text',
+  'website', 'github_username', 'x_twitter_handle', 'profile_image_url',
+  'created_at', 'updated_at', 'current_draft_uuid', 'draft_loaded_at',
+  'intis_earned_total'
+];
+
+const TOPIC_SUBSCRIPTION_FIELDS = [
+  'topic_uuid', 'created_at', 'updated_at', 'status', 'id', 'user_id',
+  'topic_type_description', 'audience_name', 'category_name', 'topic_type_name',
+  'about_what', 'about_why', 'about_ai', 'about_final',
+  'title_contributor', 'title_ai', 'title_final',
+  'content_draft', 'content_rev_ai', 'content_draft_ai', 
+  'content_prompt', 'content_live_orig', 'content_outline_ai'
+];
+
+
+
 export default function MinimalTestPage() {
   const [userData, setUserData] = useState<Record<string, unknown> | null>(null);
   const [messages, setMessages] = useState<Array<{timestamp: string, type: string, data: unknown}>>([]);
   const [drafts, setDrafts] = useState<TopicDraft[]>([]);
   const [activeDraft, setActiveDraft] = useState<ActiveDraftStatus | null>(null);
+  const [subscriptionActive, setSubscriptionActive] = useState(false);
   
   const { sendMessage, isConnected, authState, lastMessage } = useIntiCommunication();
 
   // Update user data when auth state changes
+  // Capture WebSocket reference
+
   useEffect(() => {
     if (authState.authenticated && authState.user) {
       setUserData(authState.user as unknown as Record<string, unknown>);
@@ -69,9 +91,30 @@ export default function MinimalTestPage() {
     }
   }, [lastMessage]);
 
+  // Send subscription on first user data request
+  useEffect(() => {
+    if (isConnected && authState.authenticated && !subscriptionActive) {
+      console.log('[Test] === SENDING SUBSCRIPTION ===');
+      sendMessage('uco.subscribe', {
+        fields: {
+          user: USER_SUBSCRIPTION_FIELDS,
+          topic: TOPIC_SUBSCRIPTION_FIELDS
+        },
+        mode: 'hybrid'
+      });
+      setSubscriptionActive(true);
+    }
+  }, [isConnected, authState.authenticated, sendMessage]);
+
+
   const requestUserData = () => {
-    const requestData = { action: 'get_user_data', timestamp: Date.now() };
-    sendMessage('user.get_data', requestData);
+    const requestData = { 
+      action: 'get_user_data',
+      fields: USER_SUBSCRIPTION_FIELDS,
+      timestamp: Date.now() 
+    };
+    console.log('[Test] Requesting user data with', USER_SUBSCRIPTION_FIELDS.length, 'fields');
+    sendMessage("user.get_data", { fields: USER_SUBSCRIPTION_FIELDS });
     
     setMessages(prev => [...prev, {
       timestamp: new Date().toISOString(),
@@ -105,11 +148,11 @@ export default function MinimalTestPage() {
 
   const requestActiveDraft = useCallback(() => {
     const requestData = { timestamp: Date.now() };
-    sendMessage('topic.get_active_draft', requestData);
+    sendMessage("topic.get_current", { fields: TOPIC_SUBSCRIPTION_FIELDS });
     
     setMessages(prev => [...prev, {
       timestamp: new Date().toISOString(),
-      type: 'topic.get_active_draft (outgoing)',
+      type: 'topic.get_current (outgoing)',
       data: requestData
     }]);
   }, [sendMessage]);
@@ -414,7 +457,7 @@ export default function MinimalTestPage() {
             </div>
             <div>
               <h4 className="font-medium text-green-400 mb-2">New WebSocket Commands:</h4>
-              <p className="text-gray-400"><strong>topic.list_drafts</strong> • <strong>topic.get_active_draft</strong> • <strong>topic.load_draft</strong></p>
+              <p className="text-gray-400"><strong>topic.list_drafts</strong> • <strong>topic.get_current</strong> • <strong>topic.load_draft</strong></p>
             </div>
           </div>
         </div>

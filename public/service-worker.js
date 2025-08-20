@@ -1,5 +1,5 @@
 // Fixed PWA service worker for Inti
-const CACHE_NAME = "inti-v1";
+const CACHE_NAME = "inti-v7-1755477539708";
 const urlsToCache = [
   "/",
   "/manifest.json"
