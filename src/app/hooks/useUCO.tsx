@@ -204,6 +204,7 @@ export function useUCO(options: UCOHookOptions = {}) {
   const subscribedRef = useRef<boolean>(false);
   const lastUpdateRef = useRef<number>(0);
   const updateDebounceRef = useRef<NodeJS.Timeout | null>(null);
+  const currentUCORef = useRef<UCOv15 | null>(null); // Store current UCO state for immediate access
   
   // Get session ID
   const getSessionId = useCallback(() => {
@@ -442,7 +443,9 @@ export function useUCO(options: UCOHookOptions = {}) {
         }
         
         setUCO(v15Data);
+        currentUCORef.current = v15Data; // Update ref immediately for field updates
         setLoading(false);
+        console.log('[UCO] State set successfully - should be available for field updates');
         if (onUpdate) onUpdate(v15Data);
         break;
         
@@ -460,10 +463,41 @@ export function useUCO(options: UCOHookOptions = {}) {
       case 'uco.field_update':
         // Handle partial field updates from backend
         console.log('[UCO] Field update received:', message.component, message.updates);
+        console.log('[UCO] React state UCO:', uco ? 'EXISTS' : 'NULL');
+        console.log('[UCO] Ref UCO state:', currentUCORef.current ? 'EXISTS' : 'NULL');
+        console.log('[UCO] Message structure:', { type: message.type, component: message.component, hasUpdates: !!message.updates });
         
-        if (uco && message.component && message.updates) {
-          // Create a new UCO with merged updates
-          const updatedUCO = { ...uco };
+        // Use ref for immediate access, fallback to state
+        const currentUCO = currentUCORef.current || uco;
+        
+        // If neither ref nor state has UCO, request initial state and try again
+        if (!currentUCO && message.component && message.updates) {
+          console.log('[UCO] No UCO state available, requesting initial state and retrying field update');
+          requestInitialState();
+          
+          // Retry the field update after a short delay to allow state to initialize
+          setTimeout(() => {
+            console.log('[UCO] Retrying field update after state initialization');
+            handleWebSocketMessage(message);
+          }, 100);
+          return;
+        }
+        
+        if (currentUCO && message.component && message.updates) {
+          console.log('[UCO] Processing field update for component:', message.component);
+          console.log('[UCO] Update data:', message.updates);
+          
+          // Create a proper deep copy to ensure React detects state changes
+          const updatedUCO = {
+            ...currentUCO,
+            data: {
+              ...currentUCO.data,
+              components: {
+                ...currentUCO.data.components
+              }
+            },
+            views: { ...currentUCO.views }
+          };
           
           // Merge the updates into the appropriate component
           if (message.component === 'user') {
@@ -497,7 +531,11 @@ export function useUCO(options: UCOHookOptions = {}) {
           updatedUCO.data.facts = extractFacts(updatedUCO.data.components);
           
           console.log('[UCO] Applied field update to', message.component);
+          console.log('[UCO] Updated topic component:', updatedUCO.data.components.topic);
+          console.log('[UCO] Topic loaded status should be:', !!updatedUCO.data.components.topic.loaded || !!updatedUCO.data.components.topic.uuid);
+          
           setUCO(updatedUCO);
+          currentUCORef.current = updatedUCO; // Update ref immediately for subsequent field updates
           
           if (onUpdate) onUpdate(updatedUCO);
         }

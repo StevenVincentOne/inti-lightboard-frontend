@@ -84,7 +84,7 @@ export default function ConsentModal() {
 
   // consent is null, meaning it hasn't been given or declined yet
   return (
-    <div className="fixed bottom-0 left-0 right-0 bg-gray border-t border-green shadow-lg z-[10002]">
+    <div className="fixed bottom-0 left-0 right-0 bg-gray border-t border-green shadow-lg z-50">
       <div className="max-w-7xl mx-auto p-4">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex-1 text-sm text-textgray">
